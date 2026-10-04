@@ -518,7 +518,15 @@ function App() {
     const term = leadFilter.trim().toLowerCase();
     const filtered = term
       ? displayedLeads.filter((lead) =>
-          [lead.name, lead.category, lead.address, lead.crm?.status]
+          [
+            lead.name,
+            lead.category,
+            lead.address,
+            lead.crm?.status,
+            lead.crm?.contactPerson,
+            lead.crm?.contactValue,
+            lead.crm?.notes,
+          ]
             .filter(Boolean)
             .some((value) => String(value).toLowerCase().includes(term)),
         )
