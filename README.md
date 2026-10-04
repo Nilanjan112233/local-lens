@@ -101,3 +101,13 @@ npm start         # API only
 ```
 
 See [PERSONAL_WORKFLOW_GUIDE.md](./PERSONAL_WORKFLOW_GUIDE.md) for the daily operating process, [TESTING_REPORT.md](./TESTING_REPORT.md) for verified evidence, and [OPEN_SOURCE_RESEARCH.md](./OPEN_SOURCE_RESEARCH.md) for the reusable-project research.
+
+## Local access controls
+
+The API listens on `127.0.0.1` by default. Keep that default for a personal workspace.
+
+- Set `HOST` only when you deliberately need another network interface.
+- Set `LOCALLENS_ALLOWED_ORIGINS` to a comma-separated list when the frontend uses a non-default origin.
+- Set `LOCALLENS_API_TOKEN` to require an `X-LocalLens-Token` header for every API route except the health check.
+
+The workspace also keeps the six most recent searches so useful location/category combinations can be loaded again. Saved and discovered businesses can be filtered by name, category, address, or status and sorted by score, rating, review count, or follow-up date.

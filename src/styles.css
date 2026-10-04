@@ -260,6 +260,47 @@ main {
 .search-button:disabled {
   opacity: 0.7;
 }
+.recent-searches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 8px 0;
+  overflow-x: auto;
+}
+.recent-searches > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.recent-searches button {
+  border: 1px solid var(--line);
+  background: #f8faf7;
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.recent-searches button:hover {
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+.lead-tools {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 155px;
+  gap: 10px;
+  padding: 0 0 14px;
+}
+.lead-tools input,
+.lead-tools select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 9px 11px;
+}
 .error-banner {
   color: #a3382c;
   background: #fff0ed;

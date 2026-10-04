@@ -206,6 +206,15 @@ export interface SearchResponse {
   };
 }
 
+export interface RecentSearch {
+  id: number;
+  query: SearchResponse["query"];
+  diagnostics: Partial<SearchResponse["diagnostics"]>;
+  provider: "demo" | "google";
+  cacheHit: boolean;
+  createdAt: string;
+}
+
 export interface WorkspaceSummary {
   totalLeads: number;
   byStatus: Record<string, number>;

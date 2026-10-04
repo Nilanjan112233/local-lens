@@ -393,6 +393,23 @@ export function recordSearch(query, diagnostics, provider, cacheHit) {
   );
 }
 
+export function listRecentSearches(limit = 8) {
+  const safeLimit = Math.min(25, Math.max(1, Number(limit) || 8));
+  return db
+    .prepare(
+      "SELECT id,query_json,diagnostics_json,provider,cache_hit,created_at FROM searches ORDER BY created_at DESC LIMIT ?",
+    )
+    .all(safeLimit)
+    .map((row) => ({
+      id: row.id,
+      query: parse(row.query_json, {}),
+      diagnostics: parse(row.diagnostics_json, {}),
+      provider: row.provider,
+      cacheHit: Boolean(row.cache_hit),
+      createdAt: row.created_at,
+    }));
+}
+
 export function recordUsage(
   provider,
   operation,
@@ -508,4 +525,8 @@ export function createBackup() {
   const destination = path.join(backupDirectory, filename);
   fs.copyFileSync(databasePath, destination);
   return { filename, path: destination, size: fs.statSync(destination).size };
+}
+
+export function closeDatabase() {
+  db.close();
 }

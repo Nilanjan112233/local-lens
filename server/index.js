@@ -31,6 +31,7 @@ import {
   listDeliveryTasks,
   listLeads,
   listProposals,
+  listRecentSearches,
   recordSearch,
   recordUsage,
   replaceDeliveryTasks,
@@ -52,8 +53,39 @@ import { generatePdf } from "./pdf.js";
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
-app.use(cors());
+const host = process.env.HOST || "127.0.0.1";
+const allowedOrigins = new Set(
+  (
+    process.env.LOCALLENS_ALLOWED_ORIGINS ||
+    "http://localhost:5173,http://127.0.0.1:5173"
+  )
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+app.disable("x-powered-by");
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error("Origin is not allowed."));
+    },
+  }),
+);
 app.use(express.json({ limit: "1mb" }));
+
+const apiToken = String(process.env.LOCALLENS_API_TOKEN || "").trim();
+app.use("/api", (req, res, next) => {
+  if (!apiToken || req.path === "/health") return next();
+  const supplied = Buffer.from(String(req.get("x-locallens-token") || ""));
+  const expected = Buffer.from(apiToken);
+  if (
+    supplied.length === expected.length &&
+    crypto.timingSafeEqual(supplied, expected)
+  )
+    return next();
+  return res.status(401).json({ error: "Authentication required." });
+});
 
 function cleanPlace(place) {
   if (!place?.id || !place?.name || !place?.category || !place?.address)
@@ -236,6 +268,10 @@ app.post("/api/search", async (req, res) => {
       .json({ error: error.message || "The place provider request failed." });
   }
 });
+
+app.get("/api/searches", (req, res) =>
+  res.json({ searches: listRecentSearches(req.query.limit) }),
+);
 
 app.get("/api/leads", (_req, res) => res.json({ leads: listLeads() }));
 app.post("/api/leads", (req, res) => {
@@ -504,6 +540,6 @@ app.get("/api/proposals/:id/proposal.pdf", (req, res) => {
   }
 });
 
-app.listen(port, () =>
-  console.log(`LocalLens API listening on http://localhost:${port}`),
+app.listen(port, host, () =>
+  console.log(`LocalLens API listening on http://${host}:${port}`),
 );

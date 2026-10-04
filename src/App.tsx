@@ -51,6 +51,7 @@ import type {
   Opportunity,
   OutreachDrafts,
   Proposal,
+  RecentSearch,
   SearchResponse,
   WebsiteVerification,
   WorkspaceSummary,
@@ -162,15 +163,22 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+  const [leadFilter, setLeadFilter] = useState("");
+  const [leadSort, setLeadSort] = useState<
+    "score" | "rating" | "reviews" | "followup"
+  >("score");
 
   async function refreshWorkspace() {
-    const [leadData, dashboard] = await Promise.all([
+    const [leadData, dashboard, searchData] = await Promise.all([
       api<{ leads: Opportunity[] }>("/api/leads"),
       api<WorkspaceSummary>("/api/dashboard"),
+      api<{ searches: RecentSearch[] }>("/api/searches?limit=6"),
     ]);
     setLeads(leadData.leads);
     setSummary(dashboard);
     setSettingsDraft(dashboard.settings);
+    setRecentSearches(searchData.searches);
   }
 
   useEffect(() => {
@@ -219,12 +227,25 @@ function App() {
         }),
       });
       setResult(data);
+      const searchData = await api<{ searches: RecentSearch[] }>(
+        "/api/searches?limit=6",
+      );
+      setRecentSearches(searchData.searches);
       setView("discover");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  function repeatSearch(search: RecentSearch) {
+    setLocation(search.query.location);
+    setCategory(search.query.category);
+    setMinRating(search.query.minRating);
+    setMinReviews(search.query.minReviews);
+    setDepth(search.query.depth);
+    setNotice("Previous search loaded. Review the limits, then run it again.");
   }
 
   async function selectLead(lead: Opportunity) {
@@ -493,14 +514,37 @@ function App() {
     return leads;
   }, [view, result, leads]);
 
-  const averageRating = displayedLeads.length
-    ? displayedLeads.reduce((sum, lead) => sum + lead.rating, 0) /
-      displayedLeads.length
+  const visibleLeads = useMemo(() => {
+    const term = leadFilter.trim().toLowerCase();
+    const filtered = term
+      ? displayedLeads.filter((lead) =>
+          [lead.name, lead.category, lead.address, lead.crm?.status]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(term)),
+        )
+      : displayedLeads;
+    return [...filtered].sort((a, b) => {
+      if (leadSort === "rating") return b.rating - a.rating;
+      if (leadSort === "reviews") return b.reviewCount - a.reviewCount;
+      if (leadSort === "followup")
+        return String(a.crm?.nextFollowUpAt || "9999").localeCompare(
+          String(b.crm?.nextFollowUpAt || "9999"),
+        );
+      return (
+        (b.commercialScore?.score || b.opportunityScore) -
+        (a.commercialScore?.score || a.opportunityScore)
+      );
+    });
+  }, [displayedLeads, leadFilter, leadSort]);
+
+  const averageRating = visibleLeads.length
+    ? visibleLeads.reduce((sum, lead) => sum + lead.rating, 0) /
+      visibleLeads.length
     : 0;
-  const center = displayedLeads[0]?.location || { lat: 22.5726, lng: 88.3639 };
+  const center = visibleLeads[0]?.location || { lat: 22.5726, lng: 88.3639 };
   const usesGoogleData =
     result?.provider === "google" ||
-    displayedLeads.some((lead) => !lead.id.startsWith("demo-"));
+    visibleLeads.some((lead) => !lead.id.startsWith("demo-"));
   const viewTitle =
     view === "today"
       ? ["TODAY'S WORK", "Follow up on the right opportunities."]
@@ -515,7 +559,7 @@ function App() {
               : ["LOCAL SETTINGS", "Control cost, packages, and backups."];
 
   function exportCsv() {
-    if (!displayedLeads.length) return;
+    if (!visibleLeads.length) return;
     const rows = [
       [
         "Business",
@@ -528,7 +572,7 @@ function App() {
         "Status",
         "Follow up",
       ],
-      ...displayedLeads.map((lead) => [
+      ...visibleLeads.map((lead) => [
         lead.name,
         lead.category,
         lead.rating,
@@ -642,7 +686,7 @@ function App() {
           <button
             className="export-button"
             onClick={exportCsv}
-            disabled={!displayedLeads.length}
+            disabled={!visibleLeads.length}
           >
             <Download size={17} /> Export view
           </button>
@@ -725,6 +769,20 @@ function App() {
                 {loading ? "Scanning…" : "Find opportunities"}
               </button>
             </form>
+            {!!recentSearches.length && (
+              <div className="recent-searches" aria-label="Recent searches">
+                <span>Recent</span>
+                {recentSearches.map((search) => (
+                  <button
+                    key={search.id}
+                    type="button"
+                    onClick={() => repeatSearch(search)}
+                  >
+                    {search.query.category} · {search.query.location}
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -738,7 +796,7 @@ function App() {
                 <span>
                   {view === "discover" ? "Opportunities" : "Leads in view"}
                 </span>
-                <strong>{displayedLeads.length || "—"}</strong>
+                <strong>{visibleLeads.length || "—"}</strong>
                 <small>
                   {view === "discover"
                     ? "commercially ranked"
@@ -822,6 +880,26 @@ function App() {
                     : "Local SQLite"}
                 </span>
               </div>
+              <div className="lead-tools">
+                <input
+                  value={leadFilter}
+                  onChange={(event) => setLeadFilter(event.target.value)}
+                  placeholder="Filter by business, category, place, or status"
+                  aria-label="Filter visible leads"
+                />
+                <select
+                  value={leadSort}
+                  onChange={(event) =>
+                    setLeadSort(event.target.value as typeof leadSort)
+                  }
+                  aria-label="Sort visible leads"
+                >
+                  <option value="score">Best score</option>
+                  <option value="rating">Highest rating</option>
+                  <option value="reviews">Most reviews</option>
+                  <option value="followup">Next follow-up</option>
+                </select>
+              </div>
               {view === "discover" && result && (
                 <>
                   <div className="notice">
@@ -853,7 +931,7 @@ function App() {
                   ? Array.from({ length: 5 }).map((_, index) => (
                       <div className="lead-card skeleton" key={index} />
                     ))
-                  : displayedLeads.map((lead, index) => (
+                  : visibleLeads.map((lead, index) => (
                       <article
                         className={`lead-card ${selected?.id === lead.id ? "selected" : ""}`}
                         key={lead.id}
@@ -905,7 +983,7 @@ function App() {
                         <ChevronRight className="chevron" size={20} />
                       </article>
                     ))}
-                {!loading && !displayedLeads.length && (
+                {!loading && !visibleLeads.length && (
                   <Empty
                     title={
                       view === "discover"
@@ -952,7 +1030,7 @@ function App() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   />
                   <MapFocus lead={selected} />
-                  {displayedLeads.map(
+                  {visibleLeads.map(
                     (lead) =>
                       lead.location?.lat && (
                         <CircleMarker
