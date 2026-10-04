@@ -777,8 +777,10 @@ function App() {
                     key={search.id}
                     type="button"
                     onClick={() => repeatSearch(search)}
+                    title={`Load search from ${new Date(search.createdAt).toLocaleString()}`}
                   >
-                    {search.query.category} · {search.query.location}
+                    {search.query.category} · {search.query.location} ·{" "}
+                    {search.diagnostics.uniquePlaces ?? 0} places
                   </button>
                 ))}
               </div>
