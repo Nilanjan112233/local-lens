@@ -894,7 +894,7 @@ function App() {
                 <input
                   value={leadFilter}
                   onChange={(event) => setLeadFilter(event.target.value)}
-                  placeholder="Filter by business, category, place, or status"
+                  placeholder="Filter by business, place, status, contact, or notes"
                   aria-label="Filter visible leads"
                 />
                 <select
