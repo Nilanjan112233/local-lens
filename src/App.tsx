@@ -578,7 +578,11 @@ function App() {
         "Address",
         "Score",
         "Status",
+        "Contact person",
+        "Contact method",
+        "Contact value",
         "Follow up",
+        "Notes",
       ],
       ...visibleLeads.map((lead) => [
         lead.name,
@@ -589,7 +593,11 @@ function App() {
         lead.address,
         lead.commercialScore?.score || lead.opportunityScore,
         lead.crm?.status || "new",
+        lead.crm?.contactPerson || "",
+        lead.crm?.contactMethod || "",
+        lead.crm?.contactValue || "",
         lead.crm?.nextFollowUpAt || "",
+        lead.crm?.notes || "",
       ]),
     ];
     const csv = rows
