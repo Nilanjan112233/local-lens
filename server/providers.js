@@ -81,6 +81,8 @@ const DEMO_PLACES = [
   ],
 ];
 
+const PLACES_REQUEST_TIMEOUT_MS = 20_000;
+
 export const DISCOVERY_CATEGORIES = [
   "restaurants",
   "cafes",
@@ -195,6 +197,7 @@ async function fetchTextSearchPage({ query, location, apiKey, pageToken }) {
     "https://places.googleapis.com/v1/places:searchText",
     {
       method: "POST",
+      signal: AbortSignal.timeout(PLACES_REQUEST_TIMEOUT_MS),
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
