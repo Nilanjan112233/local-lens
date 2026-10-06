@@ -102,11 +102,23 @@ const stages: Array<{ value: LeadStatus; label: string }> = [
 ].map(([value, label]) => ({ value: value as LeadStatus, label }));
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
-  const data = await response.json();
-  if (!response.ok)
-    throw new Error(data.error || `Request failed (${response.status})`);
-  return data;
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: options?.signal ?? AbortSignal.timeout(30_000),
+    });
+    const contentType = response.headers.get("content-type") || "";
+    const data = contentType.includes("application/json")
+      ? await response.json()
+      : { error: (await response.text()).trim() };
+    if (!response.ok)
+      throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError")
+      throw new Error("The request timed out. Check the local API and try again.");
+    throw error;
+  }
 }
 
 function MapFocus({ lead }: { lead: Opportunity | null }) {
