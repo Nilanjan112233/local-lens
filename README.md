@@ -110,4 +110,4 @@ The API listens on `127.0.0.1` by default. Keep that default for a personal work
 - Set `LOCALLENS_ALLOWED_ORIGINS` to a comma-separated list when the frontend uses a non-default origin.
 - Set `LOCALLENS_API_TOKEN` to require an `X-LocalLens-Token` header for every API route except the health check.
 
-The workspace also keeps the six most recent searches so useful location/category combinations can be loaded again. Saved and discovered businesses can be filtered by name, category, address, or status and sorted by score, rating, review count, or follow-up date.
+The workspace also keeps the six most recent searches, including their result counts, so useful location/category combinations can be loaded again. Saved and discovered businesses can be filtered by name, category, address, status, contact details, or CRM notes and sorted by score, rating, review count, or follow-up date. CSV exports include the visible leads plus their CRM contact fields, follow-up dates, and notes for offline work.
