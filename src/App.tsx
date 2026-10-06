@@ -911,12 +911,24 @@ function App() {
                 </span>
               </div>
               <div className="lead-tools">
-                <input
-                  value={leadFilter}
-                  onChange={(event) => setLeadFilter(event.target.value)}
-                  placeholder="Filter by business, place, status, contact, or notes"
-                  aria-label="Filter visible leads"
-                />
+                <div className="lead-filter-field">
+                  <input
+                    value={leadFilter}
+                    onChange={(event) => setLeadFilter(event.target.value)}
+                    placeholder="Filter by business, place, status, contact, or notes"
+                    aria-label="Filter visible leads"
+                  />
+                  {leadFilter && (
+                    <button
+                      className="filter-clear"
+                      type="button"
+                      onClick={() => setLeadFilter("")}
+                      aria-label="Clear lead filter"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
                 <select
                   value={leadSort}
                   onChange={(event) =>
@@ -929,6 +941,9 @@ function App() {
                   <option value="reviews">Most reviews</option>
                   <option value="followup">Next follow-up</option>
                 </select>
+                <span className="filter-summary" role="status" aria-live="polite">
+                  Showing {visibleLeads.length} of {displayedLeads.length} leads
+                </span>
               </div>
               {view === "discover" && result && (
                 <>
