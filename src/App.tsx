@@ -1031,14 +1031,18 @@ function App() {
                 {!loading && !visibleLeads.length && (
                   <Empty
                     title={
-                      view === "discover"
-                        ? "No matches yet"
-                        : "Nothing requires attention"
+                      leadFilter
+                        ? "No leads match this filter"
+                        : view === "discover"
+                          ? "No matches yet"
+                          : "Nothing requires attention"
                     }
                     text={
-                      view === "discover"
-                        ? "Run a Standard search or adjust the thresholds."
-                        : "Save and qualify discovered businesses to populate this view."
+                      leadFilter
+                        ? "Clear the filter or try a broader search term."
+                        : view === "discover"
+                          ? "Run a Standard search or adjust the thresholds."
+                          : "Save and qualify discovered businesses to populate this view."
                     }
                   />
                 )}
