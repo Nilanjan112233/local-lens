@@ -193,23 +193,33 @@ async function fetchTextSearchPage({ query, location, apiKey, pageToken }) {
     "places.businessStatus",
     "nextPageToken",
   ].join(",");
-  const response = await fetch(
-    "https://places.googleapis.com/v1/places:searchText",
-    {
-      method: "POST",
-      signal: AbortSignal.timeout(PLACES_REQUEST_TIMEOUT_MS),
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": fieldMask,
+  let response;
+  try {
+    response = await fetch(
+      "https://places.googleapis.com/v1/places:searchText",
+      {
+        method: "POST",
+        signal: AbortSignal.timeout(PLACES_REQUEST_TIMEOUT_MS),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask": fieldMask,
+        },
+        body: JSON.stringify({
+          textQuery: `${query} in ${location}`,
+          pageSize: 20,
+          ...(pageToken ? { pageToken } : {}),
+        }),
       },
-      body: JSON.stringify({
-        textQuery: `${query} in ${location}`,
-        pageSize: 20,
-        ...(pageToken ? { pageToken } : {}),
-      }),
-    },
-  );
+    );
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      throw new Error(
+        `Google Places request timed out after ${PLACES_REQUEST_TIMEOUT_MS / 1000} seconds.`,
+      );
+    }
+    throw error;
+  }
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(
