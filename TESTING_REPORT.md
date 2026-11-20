@@ -1,5 +1,29 @@
 # LocalLens validation report
 
+## Update: 2026-11-20 review and browser pass
+
+Fixes from this review, each covered by a test where marked:
+
+- Demo search diagnostics reported 8 raw/unique places even when the category filter returned fewer (tested).
+- Non-numeric rating/review thresholds were accepted and silently matched nothing (now `400`, tested).
+- Settings accepted empty or negative values. An empty Gemini limit was stored as `""`, which blocked every AI call. Values are now validated and clamped (tested).
+- A disallowed CORS origin returned a `500` HTML page with a stack trace. It now returns a `403` JSON error (tested).
+- Updating a missing delivery task returned `{}`. It now returns `404` (tested).
+- Re-running website verification could move a contacted or won lead back to `qualified`. Verification now changes only leads that are still being qualified (tested).
+- The saved-leads list showed the original search score instead of the score after verification and analysis (tested).
+- Setting `LOCALLENS_API_TOKEN` broke the UI, because the browser never sent the token. The Vite dev proxy now adds it server-side (checked manually: direct call `401`, proxied call `200`, token absent from served JS).
+- The UI gave up on long Gemini or Deep-scan requests after 30 s while the server kept working. Those calls now allow 150 s.
+- Follow-up dates used UTC, so they could be off by one day in IST. They now use local dates.
+- The demo dataset used realistic Indian mobile numbers. It now uses deliberately invalid `+91 00000 …` numbers (tested).
+- UI: the AI strategy tab now shows whether the brief was grounded, plus the model's caveats. Other fixes: the truncated scan-depth select, the off-screen export button at phone width, duplicate recent-search chips, a "live" label shown on demo results, Escape to close the lead drawer, labels on icon-only buttons, `rel="noopener"` on external links, and the backup button now reports errors in the page instead of `alert()`.
+- `npm audit fix` (lockfile only): 0 known vulnerabilities after the update.
+
+Automated: `npm run typecheck` passed. `npm test`: 19 passed, 0 failed.
+
+Browser pass (Chrome, 1440×900 and 390×844, demo dataset): Discover search, ranked list and map, lead drawer, a real Gemini strategy run, CRM tab, Escape-to-close, Pipeline, and the phone layout. Not exercised in the browser this time: PDF downloads, the proposal and delivery tabs, and Settings saves (Settings validation is covered by the API test).
+
+---
+
 Date: 2026-07-20
 
 ## Scope validated
