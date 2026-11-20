@@ -103,6 +103,9 @@ db.exec(`
 `);
 
 const now = () => new Date().toISOString();
+/** YYYY-MM-DD in the server's local time zone (follow-up dates are local). */
+export const localDate = (date = new Date()) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const parse = (value, fallback = null) => {
   try {
     return JSON.parse(value);
@@ -359,7 +362,16 @@ export function updateDeliveryTask(id, completed) {
   db.prepare(
     "UPDATE delivery_tasks SET completed=?,updated_at=? WHERE id=?",
   ).run(completed ? 1 : 0, now(), id);
-  return db.prepare("SELECT * FROM delivery_tasks WHERE id=?").get(id);
+  const row = db.prepare("SELECT * FROM delivery_tasks WHERE id=?").get(id);
+  return row
+    ? {
+        id: row.id,
+        leadId: row.lead_id,
+        label: row.label,
+        phase: row.phase,
+        completed: Boolean(row.completed),
+      }
+    : null;
 }
 
 export function getCached(key) {
@@ -443,13 +455,56 @@ export function getSettings() {
     ...Object.fromEntries(rows.map((row) => [row.key, parse(row.value_json)])),
   };
 }
+const INTEGER_SETTINGS = {
+  dailyPlacesRequestLimit: [1, 10000],
+  dailyGeminiCallLimit: [1, 10000],
+  searchCacheHours: [1, 24 * 30],
+  followUpDays: [1, 365],
+};
+
+function toBoundedInteger(value, [min, max]) {
+  const number = Number(value);
+  if (value === "" || value === null || !Number.isFinite(number)) return null;
+  return Math.min(max, Math.max(min, Math.round(number)));
+}
+
+/**
+ * Validates a settings patch. Invalid values are dropped (the stored value is
+ * kept) instead of being saved, so an empty form field cannot silently set a
+ * daily limit to 0 and block every provider call.
+ */
+export function sanitizeSettings(patch = {}) {
+  const clean = {};
+  for (const [key, range] of Object.entries(INTEGER_SETTINGS)) {
+    if (!(key in patch)) continue;
+    const value = toBoundedInteger(patch[key], range);
+    if (value !== null) clean[key] = value;
+  }
+  if (typeof patch.defaultCurrency === "string") {
+    const currency = patch.defaultCurrency.trim().toUpperCase().slice(0, 5);
+    if (/^[A-Z]{3,5}$/.test(currency)) clean.defaultCurrency = currency;
+  }
+  if (patch.packagePrices && typeof patch.packagePrices === "object") {
+    const prices = {};
+    for (const key of Object.keys(DEFAULT_SETTINGS.packagePrices)) {
+      const value = toBoundedInteger(patch.packagePrices[key], [0, 1e9]);
+      if (value !== null) prices[key] = value;
+    }
+    if (Object.keys(prices).length) clean.packagePrices = prices;
+  }
+  return clean;
+}
+
 export function saveSettings(patch) {
   const statement = db.prepare(
     "INSERT INTO settings (key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",
   );
-  for (const [key, value] of Object.entries(patch))
-    if (key in DEFAULT_SETTINGS)
-      statement.run(key, JSON.stringify(value), now());
+  const current = getSettings();
+  const clean = sanitizeSettings(patch);
+  if (clean.packagePrices)
+    clean.packagePrices = { ...current.packagePrices, ...clean.packagePrices };
+  for (const [key, value] of Object.entries(clean))
+    statement.run(key, JSON.stringify(value), now());
   return getSettings();
 }
 export function assertWithinBudget(provider, additionalUnits = 1) {
@@ -468,7 +523,7 @@ export function assertWithinBudget(provider, additionalUnits = 1) {
 
 export function dashboardSummary() {
   const leads = listLeads();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   const proposals = db
     .prepare(
       "SELECT status,COUNT(*) count,SUM(amount) amount FROM proposals GROUP BY status",

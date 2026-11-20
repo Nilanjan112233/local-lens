@@ -101,11 +101,26 @@ const stages: Array<{ value: LeadStatus; label: string }> = [
   ["archived", "Archived"],
 ].map(([value, label]) => ({ value: value as LeadStatus, label }));
 
-async function api<T>(url: string, options?: RequestInit): Promise<T> {
+// Grounded Gemini calls and Deep Places scans can take well over 30 seconds.
+// The UI waits longer for those so it doesn't report a failure while the
+// server is still finishing (and paying for) the request.
+const DEFAULT_TIMEOUT_MS = 30_000;
+const LONG_TIMEOUT_MS = 150_000;
+
+/** YYYY-MM-DD in the browser's local time zone. */
+function localDate(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+async function api<T>(
+  url: string,
+  options?: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
   try {
     const response = await fetch(url, {
       ...options,
-      signal: options?.signal ?? AbortSignal.timeout(30_000),
+      signal: options?.signal ?? AbortSignal.timeout(timeoutMs),
     });
     const contentType = response.headers.get("content-type") || "";
     const data = contentType.includes("application/json")
@@ -119,6 +134,23 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
       throw new Error("The request timed out. Check the local API and try again.");
     throw error;
   }
+}
+
+/** Keeps the newest entry for each identical search (at most six chips). */
+function uniqueSearches(searches: RecentSearch[]) {
+  const seen = new Set<string>();
+  return searches.filter(({ query }) => {
+    const key = [
+      query.location.trim().toLowerCase(),
+      query.category.toLowerCase(),
+      query.minRating,
+      query.minReviews,
+      query.depth,
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 6);
 }
 
 function MapFocus({ lead }: { lead: Opportunity | null }) {
@@ -185,12 +217,12 @@ function App() {
     const [leadData, dashboard, searchData] = await Promise.all([
       api<{ leads: Opportunity[] }>("/api/leads"),
       api<WorkspaceSummary>("/api/dashboard"),
-      api<{ searches: RecentSearch[] }>("/api/searches?limit=6"),
+      api<{ searches: RecentSearch[] }>("/api/searches?limit=15"),
     ]);
     setLeads(leadData.leads);
     setSummary(dashboard);
     setSettingsDraft(dashboard.settings);
-    setRecentSearches(searchData.searches);
+    setRecentSearches(uniqueSearches(searchData.searches));
   }
 
   useEffect(() => {
@@ -237,12 +269,12 @@ function App() {
           depth,
           provider: "auto",
         }),
-      });
+      }, LONG_TIMEOUT_MS);
       setResult(data);
       const searchData = await api<{ searches: RecentSearch[] }>(
-        "/api/searches?limit=6",
+        "/api/searches?limit=15",
       );
-      setRecentSearches(searchData.searches);
+      setRecentSearches(uniqueSearches(searchData.searches));
       setView("discover");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
@@ -345,11 +377,15 @@ function App() {
     setActionLoading("verify");
     setError("");
     try {
-      await api("/api/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ place: selected }),
-      });
+      await api(
+        "/api/verify",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ place: selected }),
+        },
+        LONG_TIMEOUT_MS,
+      );
       await reloadSelected();
       setDrawerTab("verification");
     } catch (err) {
@@ -364,11 +400,15 @@ function App() {
     setActionLoading("analysis");
     setError("");
     try {
-      await api("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ place: selected }),
-      });
+      await api(
+        "/api/analyze",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ place: selected }),
+        },
+        LONG_TIMEOUT_MS,
+      );
       await reloadSelected();
       setDrawerTab("strategy");
     } catch (err) {
@@ -388,6 +428,7 @@ function App() {
       const data = await api<{ drafts: OutreachDrafts }>(
         `/api/leads/${encodeURIComponent(selected.id)}/outreach`,
         { method: "POST" },
+        LONG_TIMEOUT_MS,
       );
       setOutreach(data.drafts);
       setDrawerTab("outreach");
@@ -463,20 +504,45 @@ function App() {
   }
 
   async function toggleTask(task: DeliveryTask) {
-    await api(`/api/delivery-tasks/${task.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed: !task.completed }),
-    });
-    await reloadSelected();
+    try {
+      await api(`/api/delivery-tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: !task.completed }),
+      });
+      await reloadSelected();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Task update failed");
+    }
   }
 
+  async function createBackup() {
+    setActionLoading("backup");
+    try {
+      const data = await api<{ backup: { filename: string } }>("/api/backup", {
+        method: "POST",
+      });
+      setNotice(`Database backup created: data/backups/${data.backup.filename}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Backup failed");
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
+
   async function markContacted() {
-    const next = new Date(
-      Date.now() + (summary?.settings.followUpDays || 3) * 86400000,
-    )
-      .toISOString()
-      .slice(0, 10);
+    const next = localDate(
+      new Date(Date.now() + (summary?.settings.followUpDays || 3) * 86400000),
+    );
     await saveCrm({
       ...crmDraft,
       status: "contacted",
@@ -508,7 +574,7 @@ function App() {
   }
 
   const displayedLeads = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDate();
     if (view === "discover") return result?.opportunities || [];
     if (view === "today")
       return leads.filter(
@@ -634,7 +700,11 @@ function App() {
           </div>
           <span>LocalLens</span>
         </div>
-        <button className="nav-close" onClick={() => setMobileNav(false)}>
+        <button
+          className="nav-close"
+          onClick={() => setMobileNav(false)}
+          aria-label="Close navigation"
+        >
           <X />
         </button>
         <nav>
@@ -694,7 +764,9 @@ function App() {
           </p>
         </div>
         <div className="profile">
-          <div className="avatar">NS</div>
+          <div className="avatar">
+            <UserRound size={18} />
+          </div>
           <div>
             <strong>Private workspace</strong>
             <span>SQLite on this computer</span>
@@ -704,7 +776,11 @@ function App() {
 
       <main>
         <header className="topbar">
-          <button className="menu-button" onClick={() => setMobileNav(true)}>
+          <button
+            className="menu-button"
+            onClick={() => setMobileNav(true)}
+            aria-label="Open navigation"
+          >
             <Menu />
           </button>
           <div>
@@ -715,6 +791,7 @@ function App() {
             className="export-button"
             onClick={exportCsv}
             disabled={!visibleLeads.length}
+            aria-label="Export visible leads as CSV"
           >
             <Download size={17} /> Export view
           </button>
@@ -722,7 +799,7 @@ function App() {
         {error && (
           <div className="error-banner global-banner">
             {error}
-            <button onClick={() => setError("")}>
+            <button onClick={() => setError("")} aria-label="Dismiss error">
               <X />
             </button>
           </div>
@@ -730,7 +807,7 @@ function App() {
         {notice && (
           <div className="success-banner">
             {notice}
-            <button onClick={() => setNotice("")}>
+            <button onClick={() => setNotice("")} aria-label="Dismiss notice">
               <X />
             </button>
           </div>
@@ -881,7 +958,9 @@ function App() {
             draft={settingsDraft}
             setDraft={setSettingsDraft}
             save={saveWorkspaceSettings}
+            backup={createBackup}
             loading={actionLoading === "settings"}
+            backingUp={actionLoading === "backup"}
           />
         ) : (
           <section className="workspace-grid">
@@ -899,7 +978,7 @@ function App() {
                   </h2>
                   <p>
                     {view === "discover" && result
-                      ? `${result.diagnostics.uniquePlaces} unique · ${result.diagnostics.noWebsiteCandidates} no-site · ${result.diagnostics.cacheHit ? "cached" : "live"}`
+                      ? `${result.diagnostics.uniquePlaces} unique · ${result.diagnostics.noWebsiteCandidates} no-site · ${result.provider === "demo" ? "demo data" : result.diagnostics.cacheHit ? "cached" : "live"}`
                       : `${displayedLeads.length} businesses`}
                   </p>
                 </div>
@@ -1228,13 +1307,17 @@ function SettingsView({
   draft,
   setDraft,
   save,
+  backup,
   loading,
+  backingUp,
 }: {
   summary: WorkspaceSummary | null;
   draft: WorkspaceSummary["settings"] | null;
   setDraft: (value: WorkspaceSummary["settings"]) => void;
   save: () => void;
+  backup: () => void;
   loading: boolean;
+  backingUp: boolean;
 }) {
   if (!draft)
     return (
@@ -1339,16 +1422,11 @@ function SettingsView({
           download a complete JSON archive regularly.
         </p>
         <div className="settings-actions">
-          <button
-            onClick={async () => {
-              await api("/api/backup", { method: "POST" });
-              alert("Database backup created in data/backups.");
-            }}
-          >
+          <button onClick={backup} disabled={backingUp}>
             <Database />
-            Create database backup
+            {backingUp ? "Creating backup…" : "Create database backup"}
           </button>
-          <a href="/api/export" target="_blank">
+          <a href="/api/export" target="_blank" rel="noopener noreferrer">
             <Download />
             Download JSON archive
           </a>
@@ -1448,7 +1526,7 @@ function LeadDrawer(props: DrawerProps) {
         className="detail-drawer expanded"
         onClick={(e) => e.stopPropagation()}
       >
-        <button className="drawer-close" onClick={close}>
+        <button className="drawer-close" onClick={close} aria-label="Close">
           <X />
         </button>
         <span className="eyebrow">PRIVATE OPPORTUNITY WORKSPACE</span>
@@ -1572,6 +1650,7 @@ function LeadDrawer(props: DrawerProps) {
                     className="evidence-link"
                     href={verification.officialWebsiteUrl}
                     target="_blank"
+                    rel="noopener noreferrer"
                   >
                     <ExternalLink />
                     Open possible official website
@@ -1581,7 +1660,7 @@ function LeadDrawer(props: DrawerProps) {
                 {verification.candidatePresences.map((item) => (
                   <article className="evidence-item" key={item.url}>
                     <span>{item.classification.replaceAll("_", " ")}</span>
-                    <a href={item.url} target="_blank">
+                    <a href={item.url} target="_blank" rel="noopener noreferrer">
                       {item.url}
                     </a>
                     <p>{item.rationale}</p>
@@ -1594,6 +1673,7 @@ function LeadDrawer(props: DrawerProps) {
                     href={source.url}
                     key={source.url}
                     target="_blank"
+                    rel="noopener noreferrer"
                   >
                     <ExternalLink />
                     {source.title}
@@ -1629,6 +1709,13 @@ function LeadDrawer(props: DrawerProps) {
             {analysis ? (
               <>
                 <p className="analysis-summary">{analysis.executiveSummary}</p>
+                <p
+                  className={`grounding-badge ${analysis.grounded ? "grounded" : ""}`}
+                >
+                  {analysis.grounded
+                    ? `Grounded in ${analysis.sources.length} Google Maps source(s) · ${analysis.model}`
+                    : `Not grounded: based on listing data only · ${analysis.model}`}
+                </p>
                 <div className="analysis-kpis">
                   <span>
                     <ShieldCheck />
@@ -1692,13 +1779,29 @@ function LeadDrawer(props: DrawerProps) {
                     </div>
                   </div>
                 </div>
+                {!!analysis.caveats?.length && (
+                  <>
+                    <h4>Caveats</h4>
+                    <div className="caution-box">
+                      {analysis.caveats.map((caveat) => (
+                        <p key={caveat}>{caveat}</p>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <h4>Sources</h4>
+                {!analysis.sources.length && (
+                  <p className="muted-copy">
+                    No grounded sources. Verify every claim before using it.
+                  </p>
+                )}
                 {analysis.sources.map((source) => (
                   <a
                     className="source-row"
                     href={source.url}
                     key={source.url}
                     target="_blank"
+                    rel="noopener noreferrer"
                   >
                     <ExternalLink />
                     <span translate="no">Google Maps</span> · {source.title}
@@ -1956,6 +2059,7 @@ function LeadDrawer(props: DrawerProps) {
                   <a
                     href={`/api/proposals/${proposal.id}/proposal.pdf`}
                     target="_blank"
+                    rel="noopener noreferrer"
                   >
                     <FileText />
                     PDF
@@ -2002,7 +2106,7 @@ function LeadDrawer(props: DrawerProps) {
           </div>
         )}
         <div className="drawer-footer">
-          <a href={lead.mapsUrl} target="_blank">
+          <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink />
             Source listing
           </a>
@@ -2010,6 +2114,7 @@ function LeadDrawer(props: DrawerProps) {
             <a
               href={`/api/leads/${encodeURIComponent(lead.id)}/dossier.pdf`}
               target="_blank"
+                    rel="noopener noreferrer"
             >
               <FileText />
               Dossier PDF

@@ -4,7 +4,24 @@ import {
   buildDeliveryChecklist,
   buildProposalOptions,
   calculateCommercialScore,
+  statusAfterVerification,
 } from "../server/workflows.js";
+
+test("verification qualifies new leads but never undoes later CRM progress", () => {
+  assert.equal(
+    statusAfterVerification("new", "confirmed_no_owned_website"),
+    "qualified",
+  );
+  assert.equal(
+    statusAfterVerification("qualified", "manual_verification_required"),
+    "verification_required",
+  );
+  assert.equal(
+    statusAfterVerification("contacted", "owned_website_found"),
+    "contacted",
+  );
+  assert.equal(statusAfterVerification("won", "social_only"), "won");
+});
 
 const lead = {
   id: "test-lead",

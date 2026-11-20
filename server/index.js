@@ -1,5 +1,7 @@
 import "dotenv/config";
 import crypto from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
 import { qualifyAndRecommend } from "./agent.js";
@@ -48,10 +50,11 @@ import {
   buildDeliveryChecklist,
   buildProposalOptions,
   calculateCommercialScore,
+  statusAfterVerification,
 } from "./workflows.js";
 import { generatePdf } from "./pdf.js";
 
-const app = express();
+export const app = express();
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || "127.0.0.1";
 const allowedOrigins = new Set(
@@ -68,7 +71,9 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin || allowedOrigins.has(origin)) return callback(null, true);
-      return callback(new Error("Origin is not allowed."));
+      const error = new Error("Origin is not allowed.");
+      error.status = 403;
+      return callback(error);
     },
   }),
 );
@@ -141,6 +146,10 @@ app.post("/api/search", async (req, res) => {
   const category = String(req.body.category || "local businesses").trim();
   const minRating = Number(req.body.minRating ?? 4.5);
   const minReviews = Number(req.body.minReviews ?? 50);
+  if (!Number.isFinite(minRating) || !Number.isFinite(minReviews))
+    return res
+      .status(400)
+      .json({ error: "Rating and review thresholds must be numbers." });
   const depth = ["quick", "standard", "deep"].includes(req.body.depth)
     ? req.body.depth
     : "standard";
@@ -204,17 +213,19 @@ app.post("/api/search", async (req, res) => {
           providerResult.diagnostics.pagesFetched,
         );
         setCached(cacheKey, providerResult, settings.searchCacheHours);
-      } else
+      } else {
+        const places = demoSearch({ location, category });
         providerResult = {
-          places: demoSearch({ location, category }),
+          places,
           diagnostics: {
             queriesExecuted: 1,
-            pagesFetched: 1,
-            rawResults: 8,
-            uniquePlaces: 8,
-            queryPlan: [{ query: "demo", results: 8, pages: 1 }],
+            pagesFetched: 0,
+            rawResults: places.length,
+            uniquePlaces: places.length,
+            queryPlan: [{ query: "demo", results: places.length, pages: 0 }],
           },
         };
+      }
     }
     const evaluated = providerResult.places.map((place) =>
       qualifyAndRecommend(place, { minRating, minReviews }),
@@ -273,7 +284,20 @@ app.get("/api/searches", (req, res) =>
   res.json({ searches: listRecentSearches(req.query.limit) }),
 );
 
-app.get("/api/leads", (_req, res) => res.json({ leads: listLeads() }));
+// Recompute scores from the latest verification and analysis so list views
+// match the lead drawer instead of showing the score from the original search.
+app.get("/api/leads", (_req, res) =>
+  res.json({
+    leads: listLeads().map((lead) => ({
+      ...lead,
+      commercialScore: calculateCommercialScore(
+        lead,
+        getVerification(lead.id),
+        getAnalysis(lead.id),
+      ),
+    })),
+  }),
+);
 app.post("/api/leads", (req, res) => {
   try {
     const lead = upsertLead(cleanPlace(req.body.lead), req.body.crm || {});
@@ -378,14 +402,13 @@ app.post("/api/verify", async (req, res) => {
     const verification = await verifyWebsitePresence(place);
     recordUsage("gemini", "website_verification", verification.callCount || 2);
     saveVerification(place, verification);
-    const suggestedStatus = [
-      "confirmed_no_owned_website",
-      "social_only",
-      "broken_or_outdated_website",
-    ].includes(verification.verdict)
-      ? "qualified"
-      : "verification_required";
-    updateLead(place.id, { status: suggestedStatus });
+    const currentStatus = getLead(place.id)?.crm.status || "new";
+    const nextStatus = statusAfterVerification(
+      currentStatus,
+      verification.verdict,
+    );
+    if (nextStatus !== currentStatus)
+      updateLead(place.id, { status: nextStatus });
     addActivity(place.id, "website_verification", verification.summary, {
       verdict: verification.verdict,
       confidence: verification.confidence,
@@ -482,14 +505,14 @@ app.post("/api/leads/:id/delivery-checklist", (req, res) => {
   );
   res.json({ tasks });
 });
-app.patch("/api/delivery-tasks/:id", (req, res) =>
-  res.json({
-    task: updateDeliveryTask(
-      Number(req.params.id),
-      Boolean(req.body.completed),
-    ),
-  }),
-);
+app.patch("/api/delivery-tasks/:id", (req, res) => {
+  const task = updateDeliveryTask(
+    Number(req.params.id),
+    Boolean(req.body.completed),
+  );
+  if (!task) return res.status(404).json({ error: "Delivery task not found." });
+  res.json({ task });
+});
 
 app.get("/api/dashboard", (_req, res) => res.json(dashboardSummary()));
 app.get("/api/settings", (_req, res) => res.json({ settings: getSettings() }));
@@ -540,6 +563,20 @@ app.get("/api/proposals/:id/proposal.pdf", (req, res) => {
   }
 });
 
-app.listen(port, host, () =>
-  console.log(`LocalLens API listening on http://${host}:${port}`),
-);
+// Errors thrown by middleware (CORS, malformed JSON) are returned as JSON
+// without stack traces.
+app.use((error, _req, res, _next) => {
+  const status = Number(error.status || error.statusCode) || 500;
+  if (status >= 500) console.error("[api]", error.message);
+  res
+    .status(status)
+    .json({ error: status >= 500 ? "Internal server error." : error.message });
+});
+
+const isMainModule =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule)
+  app.listen(port, host, () =>
+    console.log(`LocalLens API listening on http://${host}:${port}`),
+  );
