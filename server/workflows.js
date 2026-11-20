@@ -11,6 +11,28 @@ const CATEGORY_VALUE = {
   "Furniture store": 9,
 };
 
+const GAP_VERDICTS = new Set([
+  "confirmed_no_owned_website",
+  "social_only",
+  "broken_or_outdated_website",
+]);
+// Stages in which website verification is still deciding whether to pursue a lead.
+const QUALIFYING_STAGES = new Set([
+  "new",
+  "verification_required",
+  "qualified",
+]);
+
+/**
+ * Pipeline stage after a website verification. A lead that has already moved
+ * on (contacted, proposal sent, won, ...) keeps its stage, so re-running
+ * verification can never undo CRM progress.
+ */
+export function statusAfterVerification(currentStatus = "new", verdict) {
+  if (!QUALIFYING_STAGES.has(currentStatus)) return currentStatus;
+  return GAP_VERDICTS.has(verdict) ? "qualified" : "verification_required";
+}
+
 export function calculateCommercialScore(
   lead,
   verification = null,

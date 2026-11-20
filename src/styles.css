@@ -199,7 +199,7 @@ main {
   display: grid;
   grid-template-columns:
     minmax(210px, 1.4fr) minmax(130px, 0.65fr)
-    90px 100px 95px auto;
+    90px 100px 112px auto;
   align-items: end;
 }
 .search-panel label {
@@ -1184,7 +1184,7 @@ main {
     min-height: 380px;
   }
   .search-panel form {
-    grid-template-columns: 1fr 1fr 90px 100px 95px;
+    grid-template-columns: 1fr 1fr 90px 100px 112px;
     gap: 10px;
   }
   .search-button {
@@ -1278,6 +1278,11 @@ main {
     overflow: hidden;
     white-space: nowrap;
     gap: 20px;
+    flex: none;
+  }
+  /* Keep the icon visible when the button collapses to icon-only. */
+  .topbar .export-button svg {
+    flex: none;
   }
   .metrics {
     grid-template-columns: 1fr;
@@ -1693,6 +1698,26 @@ main {
 .muted-copy {
   color: var(--muted);
   font-size: 10px;
+}
+.caution-box p {
+  margin: 0 0 4px;
+}
+.caution-box p:last-child {
+  margin: 0;
+}
+.grounding-badge {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  background: #fff6e8;
+  color: #795824;
+}
+.grounding-badge.grounded {
+  background: #e4f4ee;
+  color: var(--green);
 }
 
 .crm-grid {
