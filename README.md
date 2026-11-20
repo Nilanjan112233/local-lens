@@ -4,6 +4,52 @@ LocalLens is a private prospect-research and sales-workflow dashboard for findin
 
 > LocalLens does not generate, host, or deliver websites. It also does not send email, WhatsApp messages, or calls. Website implementation and every client contact remain manual actions outside the application.
 
+## Demo
+
+![Search, ranked results, and a Gemini strategy brief](docs/media/demo.gif)
+
+Search → ranked opportunities on the map → lead workspace → Gemini strategy brief → pipeline. ([MP4 version](docs/media/demo.mp4))
+
+The recording uses the built-in **demo dataset**: fictional businesses with deliberately invalid phone numbers. The AI brief is a real `gemini-3.1-flash-lite` response. Because the business is fictional, Maps grounding found nothing, and the UI labels the brief as *not grounded* and lists the model's caveats. About 8 seconds of waiting for Gemini were cut from the video, and the cut is labelled on screen.
+
+| Discover | AI strategy brief |
+| --- | --- |
+| ![Discover view with ranked results and map](docs/media/discover-results.png) | ![Gemini strategy tab with grounding badge](docs/media/ai-strategy.png) |
+| **Lead workspace** | **Caveats, scope, and sources** |
+| ![Lead drawer with category playbook and score breakdown](docs/media/lead-overview.png) | ![Competitor lessons, build scope, and caveats](docs/media/ai-strategy-details.png) |
+| **Pipeline** | **Personal CRM** |
+| ![Pipeline view](docs/media/pipeline.png) | ![CRM tab](docs/media/crm.png) |
+
+<img src="docs/media/mobile.png" alt="Discover view at phone width" width="260">
+
+## Quick start (no API keys needed)
+
+```powershell
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173` and click **Find opportunities**. Without `GOOGLE_PLACES_API_KEY` the search uses the demo dataset, so you can try discovery, scoring, saving, CRM, proposals and the pipeline without spending anything. AI verification, analysis and outreach drafts need a Gemini key (see below).
+
+## How it works
+
+```text
+React + Vite UI (src/App.tsx)
+        │  /api/* (Vite dev proxy adds the optional API token server-side)
+        ▼
+Express API (server/index.js) ── SQLite via node:sqlite (server/database.js)
+   ├─ server/providers.js   Google Places Text Search (New): query plan, paging, timeouts, dedup by Place ID; demo dataset
+   ├─ server/agent.js       qualification rules (rating, reviews, no listed website, operational) + category playbooks
+   ├─ server/workflows.js   commercial score, proposal options, delivery checklist, pipeline-stage rules
+   ├─ server/gemini.js      two-step Gemini calls: grounded research (Google Maps / Google Search tools),
+   │                        then a structured-JSON synthesis against a response schema
+   └─ server/pdf.js         spawns scripts/generate_pdf.py (ReportLab) for dossier/proposal PDFs
+```
+
+- **Cost control:** identical live searches are cached (24 h by default), and each Places or Gemini call is checked against a local daily ceiling before it runs.
+- **Evidence handling:** a missing website field is treated as "not listed", not "no website". The AI prompts forbid inferring a website's absence from that field alone, and the UI shows whether each AI brief was grounded and what its caveats are.
+- **Secrets:** API keys are read on the server from `.env`, which is git-ignored, and are never sent to the browser.
+
 ## What it includes
 
 - Quick, Standard, and Deep Google Places discovery across useful business categories
@@ -24,12 +70,12 @@ LocalLens is a private prospect-research and sales-workflow dashboard for findin
 
 ## Requirements
 
-- Node.js 22.5 or newer; Node.js 24 is recommended for the built-in SQLite runtime
-- Python 3.11 or newer with `reportlab` for PDF export
-- Google Places API (New) key for live discovery
-- Gemini key configured directly or through the existing encrypted NovelForge provider store
+- Node.js 22.13 or newer (the built-in `node:sqlite` module needs no flag from 22.13; Node 22 still prints an "experimental" warning, which is harmless)
+- Python 3.11 or newer with `reportlab`, only for PDF export
+- Optional: a Google Places API (New) key for live discovery (demo data is used without one)
+- Optional: a Gemini key, set directly or through the existing encrypted NovelForge provider store, for AI features
 
-## Run locally
+## Run locally with live providers
 
 ```powershell
 npm install
@@ -94,7 +140,7 @@ The SQLite files, `data/backups/`, and generated `output/pdf/` contents are inte
 ```powershell
 npm run dev       # API and Vite development servers
 npm run typecheck # Strict TypeScript validation
-npm run test      # Qualification and workflow tests
+npm run test      # Node test runner: qualification, scoring, provider, and HTTP API tests
 npm run build     # Production frontend build
 npm run check     # Typecheck, tests, and production build
 npm start         # API only
@@ -108,6 +154,10 @@ The API listens on `127.0.0.1` by default. Keep that default for a personal work
 
 - Set `HOST` only when you deliberately need another network interface.
 - Set `LOCALLENS_ALLOWED_ORIGINS` to a comma-separated list when the frontend uses a non-default origin.
-- Set `LOCALLENS_API_TOKEN` to require an `X-LocalLens-Token` header for every API route except the health check.
+- Set `LOCALLENS_API_TOKEN` to require an `X-LocalLens-Token` header for every API route except the health check. The Vite dev proxy reads the same value from `.env` and adds the header, so the UI and its PDF/JSON download links keep working, and the token never reaches browser code.
+
+Every supported variable is documented in [`.env.example`](./.env.example).
+
+The `test/api.test.js` suite starts the Express app on a random port with a temporary SQLite folder, so it never touches `data/` and makes no Google or Gemini calls.
 
 The workspace also keeps the six most recent searches, including their result counts, so useful location/category combinations can be loaded again. Saved and discovered businesses can be filtered by name, category, address, status, contact details, or CRM notes and sorted by score, rating, review count, or follow-up date. CSV exports include the visible leads plus their CRM contact fields, follow-up dates, and notes for offline work.
