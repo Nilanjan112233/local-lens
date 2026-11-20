@@ -1,6 +1,6 @@
 # LocalLens
 
-LocalLens is a private prospect-research and sales-workflow dashboard for finding well-reviewed local businesses whose Google listing does not show an owned website. It helps one operator verify the opportunity, analyze the business, prepare a responsible pitch, manage follow-ups, and track a separately delivered website project.
+LocalLens is a self-hosted prospect-research and sales-workflow dashboard for finding well-reviewed local businesses whose Google listing does not show an owned website. It helps one operator verify the opportunity, analyze the business, prepare a responsible pitch, manage follow-ups, and track a separately delivered website project.
 
 > LocalLens does not generate, host, or deliver websites. It also does not send email, WhatsApp messages, or calls. Website implementation and every client contact remain manual actions outside the application.
 
